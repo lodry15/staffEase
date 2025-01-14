@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUserDoc(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.systemRole.hasAny(['admin']);
+    }
+
+    function isSameOrganization(organizationId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationId == organizationId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow create: if isAuthenticated() && 
+        isUserDoc(userId) &&
+        request.resource.data.systemRole.hasAny(['admin']) &&
+        request.resource.data.organizationId is string;
+
+      allow read, update: if isUserDoc(userId) || isAdmin();
+    }
+
+    // Roles collection
+    match /roles/{roleId} {
+      allow read: if isAuthenticated() && 
+        isSameOrganization(resource.data.organizationId);
+      
+      allow create: if isAdmin() &&
+        isSameOrganization(request.resource.data.organizationId);
+      
+      allow update, delete: if isAdmin() &&
+        isSameOrganization(resource.data.organizationId);
+    }
+
+    // Locations collection
+    match /locations/{locationId} {
+      allow read: if isAuthenticated() && 
+        isSameOrganization(resource.data.organizationId);
+      
+      allow create: if isAdmin() &&
+        isSameOrganization(request.resource.data.organizationId);
+      
+      allow update, delete: if isAdmin() &&
+        isSameOrganization(resource.data.organizationId);
+    }
+
+    // Requests collection
+    match /requests/{requestId} {
+      allow create: if isAuthenticated() &&
+        isSameOrganization(request.resource.data.organizationId);
+      
+      allow read, update, delete: if isAuthenticated() &&
+        isSameOrganization(resource.data.organizationId);
+    }
+  }
+}
